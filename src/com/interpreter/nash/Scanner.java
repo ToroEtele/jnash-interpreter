@@ -1,12 +1,11 @@
-import utils.Token;
-import utils.TokenType;
+package com.interpreter.nash;
 
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import static utils.TokenType.*;
+import static com.interpreter.nash.TokenType.*;
 
 class Scanner {
     private static final Map<String, TokenType> keywords;

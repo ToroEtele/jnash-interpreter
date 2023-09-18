@@ -1,4 +1,4 @@
-package utils;
+package com.interpreter.nash;
 
 public class Token {
     final TokenType type;
