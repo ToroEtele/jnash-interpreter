@@ -1,6 +1,7 @@
 package com.interpreter.nash;
 
 import java.util.List;
+
 import static com.interpreter.nash.TokenType.*;
 
 /**
@@ -11,20 +12,29 @@ import static com.interpreter.nash.TokenType.*;
  *
  * Complete expression grammar: ( * represents a loop)
  * expression → equality
- * equality → comparison ( ( "!=" | "==" ) comparison )*
- * comparison → term ( ( ">" | ">=" | "<" | "<=" ) term )*
- * term → factor ( ( "-" | "+" ) factor )*
- * factor → unary ( ( "/" | "*" ) unary )*
- * unary → ( "!" | "-" ) unary | primary
+ * equality → comparison ( ( "!=" | "==") comparison )*
+ * comparison → term ( ( ">" | ">=" | "<" | "<=") term)*
+ * term → factor ( ( "-" | "+") factor)*
+ * factor → unary ( ( "/" | "*") unary)*
+ * unary → ( "!" | "-") unary | primary
  * primary → NUMBER | STRING | "true" | "false" | "nil" | "(" expression ")"
  *
  */
 public class Parser {
+    private static class ParseError extends RuntimeException {}
     private final List<Token> tokens;
     private int current = 0;
 
     Parser(List<Token> tokens) {
         this.tokens = tokens;
+    }
+
+    Expr parse() {
+        try {
+            return expression();
+        } catch (ParseError error) {
+            return null;
+        }
     }
 
     /**
@@ -116,10 +126,10 @@ public class Parser {
         }
         if (match(LEFT_PAREN)) {
             Expr expr = expression();
-            // consume(RIGHT_PAREN, "Expect ')' after expression.");
+            consume(RIGHT_PAREN, "Expect ')' after expression.");
             return new Expr.Grouping(expr);
         }
-        return null;
+        throw error(peek(), "Expect expression.");
     }
 
     /**
@@ -133,6 +143,11 @@ public class Parser {
             }
         }
         return false;
+    }
+
+    private Token consume(TokenType type, String message) {
+        if (check(type)) return advance();
+        throw error(peek(), message);
     }
 
     private boolean check(TokenType type) {
@@ -156,4 +171,29 @@ public class Parser {
     private Token previous() {
         return tokens.get(current - 1);
     }
+
+    private ParseError error(Token token, String message) {
+        Nash.error(token, message);
+        return new ParseError();
+    }
+
+    private void synchronize() {
+        advance();
+        while (!isAtEnd()) {
+            if (previous().type == SEMICOLON) return;
+            switch (peek().type) {
+                case CLASS:
+                case FUN:
+                case VAR:
+                case FOR:
+                case IF:
+                case WHILE:
+                case PRINT:
+                case RETURN:
+                    return;
+            }
+            advance();
+        }
+    }
 }
+
