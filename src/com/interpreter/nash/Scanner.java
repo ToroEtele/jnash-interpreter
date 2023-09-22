@@ -41,8 +41,8 @@ class Scanner {
     }
 
     /*
-    * @notice: Loop through the source, and divide it to interpretable tokens.
-    * @dev: start is the first char index of the token, with current we are searching for the end of the token.
+    * Loop through the source, and divide it to interpretable tokens.
+    * Start is the first char index of the token, with current we are searching for the end of the token.
     */
     public List<Token> scanTokens() {
         while(!isAtEnd()) {
@@ -150,7 +150,7 @@ class Scanner {
     }
 
      /*
-     *  @dev: Return the current character and increment the current
+     * Return the current character and increment the current
      */
     private char advance() {
         current++;
