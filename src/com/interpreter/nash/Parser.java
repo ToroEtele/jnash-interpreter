@@ -1,6 +1,7 @@
 package com.interpreter.nash;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 import static com.interpreter.nash.TokenType.*;
@@ -10,16 +11,27 @@ import static com.interpreter.nash.TokenType.*;
  * To address this ambiguity we have to define rules for:
  * Precedence: which operator is evaluated first. Operators with higher precedence are evaluated before operators with lower precedence
  * Associativity: determines which operator is evaluated first in a series of the same operator.
- *
  * Complete expression grammar: ( * represents a loop)
- * expression → equality
+ * program → declaration* EOF
+ * declaration → varDecl | statement
+ * varDecl → "var" IDENTIFIER ( "=" expression)? ";"
+ * statement → exprStmt | forStmt | ifStmt | whileStmt | printStmt | block
+ * forStmt → "for" "(" ( varDecl | exprStmt | ";" ) expression? ";" expression? ")" statement
+ * whileStmt → "while" "(" expression ")" statement ;
+ * exprStmt → expression";"
+ * ifStmt → "if" "(" expression ")" statement ( "else" statement )?
+ * printStmt → "print" expression ";"
+ * block → "{" declaration* "}"
+ * expression → assignment
+ * assignment → IDENTIFIER "=" assignment | logic_or
+ * logic_or → logic_and ( "or" logic_and )* ;
+ * logic_and → equality ( "and" equality )* ;
  * equality → comparison ( ( "!=" | "==") comparison )*
  * comparison → term ( ( ">" | ">=" | "<" | "<=") term)*
  * term → factor ( ( "-" | "+") factor)*
  * factor → unary ( ( "/" | "*") unary)*
  * unary → ( "!" | "-") unary | primary
- * primary → NUMBER | STRING | "true" | "false" | "nil" | "(" expression ")"
- *
+ * primary → NUMBER | STRING | "true" | "false" | "nil" | "(" expression ")" | IDENTIFIER
  */
 public class Parser {
     private static class ParseError extends RuntimeException {}
@@ -40,7 +52,7 @@ public class Parser {
 
     /**
      * This declaration() method is the method we call repeatedly when parsing a series of statements in a block or a script.
-     *
+     * This is the right place to synchronize when the parser goes into panic mode.
      * */
     private Stmt declaration() {
         try {
@@ -63,8 +75,92 @@ public class Parser {
     }
 
     private Stmt statement() {
+        if (match(FOR)) return forStatement();
+        if (match(IF)) return ifStatement();
         if(match(PRINT)) return printStatement();
+        if (match(WHILE)) return whileStatement();
+        if (match(LEFT_BRACE)) return new Stmt.Block(block());
         return expressionStatement();
+    }
+
+    private Stmt forStatement() {
+        consume(LEFT_PAREN, "Expect '(' after 'for'.");
+
+        Stmt initializer;
+        // Initializer not used
+        if (match(SEMICOLON)) {
+            initializer = null;
+        } else if (match(VAR)) {    //Declared initializer
+            initializer = varDeclaration();
+        } else {    // Expression initializer, possibly an assignment
+            initializer = expressionStatement();
+        }
+
+        Expr condition = null;
+        if (!check(SEMICOLON)) {
+            condition = expression();
+        }
+        consume(SEMICOLON, "Expect ';' after loop condition.");
+
+        Expr increment = null;
+        if (!check(RIGHT_PAREN)) {
+            increment = expression();
+        }
+        consume(RIGHT_PAREN, "Expect ')' after for clauses.");
+
+        // First we evaluate the body of the for loop as a statement, because for ex. nested loops are allowed
+        Stmt body = statement();
+
+        // If the increment is defined, we assign to the end of the statement list
+        if (increment != null) {
+            body = new Stmt.Block(
+                Arrays.asList(
+                    body,
+                    new Stmt.Expression(increment)
+                )
+            );
+        }
+        // If the condition isn't specified in the for loop, we evaluate as always true
+        if (condition == null) condition = new Expr.Literal(true);
+
+        // Add the condition before the statements from the loop's body
+        body = new Stmt.While(condition, body);
+
+        // If the initializer is not null, we add to the beginning of the list
+        if (initializer != null) {
+            body = new Stmt.Block(Arrays.asList(initializer, body));
+        }
+
+        return body;
+    }
+
+    private Stmt whileStatement() {
+        consume(LEFT_PAREN, "Expect '(' after 'while'.");
+        Expr condition = expression();
+        consume(RIGHT_PAREN, "Expect ')' after condition.");
+        Stmt body = statement();
+        return new Stmt.While(condition, body);
+    }
+
+    private Stmt ifStatement() {
+        consume(LEFT_PAREN, "Expect '(' after 'if'.");
+        Expr condition = expression();
+        consume(RIGHT_PAREN, "Expect ')' after if condition.");
+        Stmt thenBranch = statement();
+        Stmt elseBranch = null;
+        if (match(ELSE)) {
+            elseBranch = statement();
+        }
+        return new Stmt.If(condition, thenBranch, elseBranch);
+    }
+
+    private List<Stmt> block() {
+        List<Stmt> statements = new ArrayList<>();
+        while (!check(RIGHT_BRACE) && !isAtEnd()) {
+            statements.add(declaration());
+        }
+        consume(RIGHT_BRACE, "Expect '}' after block.");
+        return statements;
     }
 
     private Stmt printStatement() {
@@ -84,7 +180,41 @@ public class Parser {
      * the lowest precedence, but in this way the code becomes readable: we evaluate the parts inside a (...) as an expression.
     */
     private Expr expression() {
-        return equality();
+        return assignment();
+    }
+
+    private Expr assignment() {
+        Expr expr = or();
+        if (match(EQUAL)) {
+            Token equals = previous();
+            Expr value = assignment();
+            if (expr instanceof Expr.Variable) {
+                Token name = ((Expr.Variable) expr).name;
+                return new Expr.Assign(name, value);
+            }
+            error(equals, "Invalid assignment target.");
+        }
+        return expr;
+    }
+
+    private Expr or() {
+        Expr expr = and();
+        while (match(OR)) {
+            Token operator = previous();
+            Expr right = and();
+            expr = new Expr.Logical(expr, operator, right);
+        }
+        return expr;
+    }
+
+    private Expr and() {
+        Expr expr = equality();
+        while (match(AND)) {
+            Token operator = previous();
+            Expr right = equality();
+            expr = new Expr.Logical(expr, operator, right);
+        }
+        return expr;
     }
 
     /**
@@ -166,6 +296,9 @@ public class Parser {
             return new Expr.Literal(previous().literal);
 
         }
+        if (match(IDENTIFIER)) {
+            return new Expr.Variable(previous());
+        }
         if (match(LEFT_PAREN)) {
             Expr expr = expression();
             consume(RIGHT_PAREN, "Expect ')' after expression.");
@@ -187,16 +320,29 @@ public class Parser {
         return false;
     }
 
+    /**
+     * This function checks if the current token has the expected type, if so, increments the current position, else it throws an error
+     * @param type Expected token
+     * @param message Error message to print if the next token is not the expected type
+     * */
     private Token consume(TokenType type, String message) {
         if (check(type)) return advance();
         throw error(peek(), message);
     }
 
+    /**
+     * @param type The type of the expected token
+     * @return boolean, is the current token the expected type
+     * */
     private boolean check(TokenType type) {
         if (isAtEnd()) return false;
         return peek().type == type;
     }
 
+    /**
+     * This function increments the current if we are not at EOF
+     * @return returns the previous character after increment
+     * */
     private Token advance() {
         if (!isAtEnd()) current++;
         return previous();

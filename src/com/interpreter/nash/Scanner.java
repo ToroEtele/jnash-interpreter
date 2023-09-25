@@ -127,6 +127,13 @@ class Scanner {
              Nash.error(line, "Unterminated string at " + line + ".");
              return;
          }
+
+         // The closing "
+         advance();
+
+         // Trim the surrounding quotes.
+         String value = source.substring(start + 1, current - 1);
+         addToken(STRING, value);
      }
 
      private void number() {
