@@ -13,13 +13,17 @@ import static com.interpreter.nash.TokenType.*;
  * Associativity: determines which operator is evaluated first in a series of the same operator.
  * Complete expression grammar: ( * represents a loop)
  * program → declaration* EOF
- * declaration → varDecl | statement
+ * declaration → funcDecl | varDecl | statement
+ * funDecl → "fun" function
+ * function → IDENTIFIER "(" parameters? ")" block ;
+ * parameters → IDENTIFIER ( "," IDENTIFIER )* ;
  * varDecl → "var" IDENTIFIER ( "=" expression)? ";"
- * statement → exprStmt | forStmt | ifStmt | whileStmt | printStmt | block
+ * statement → exprStmt | forStmt | ifStmt | returnStmt | whileStmt | printStmt | block
  * forStmt → "for" "(" ( varDecl | exprStmt | ";" ) expression? ";" expression? ")" statement
  * whileStmt → "while" "(" expression ")" statement ;
  * exprStmt → expression";"
  * ifStmt → "if" "(" expression ")" statement ( "else" statement )?
+ * returnStmt → "return" expression? ";"
  * printStmt → "print" expression ";"
  * block → "{" declaration* "}"
  * expression → assignment
@@ -58,12 +62,33 @@ public class Parser {
      * */
     private Stmt declaration() {
         try {
+            if (match(FUN)) return function("function");
             if (match(VAR)) return varDeclaration();
             return statement();
         } catch (ParseError error) {
             synchronize();
             return null;
         }
+    }
+
+    private Stmt.Function function(String kind) {
+        Token name = consume(IDENTIFIER, "Expect " + kind + " name.");
+        consume(LEFT_PAREN, "Expect '(' after " + kind + " name.");
+        List<Token> parameters = new ArrayList<>();
+        if (!check(RIGHT_PAREN)) {
+            do {
+                if (parameters.size() >= 255) {
+                    error(peek(), "Can't have more than 255 parameters.");
+                }
+                parameters.add(
+                        consume(IDENTIFIER, "Expect parameter name."));
+            } while (match(COMMA));
+        }
+        consume(RIGHT_PAREN, "Expect ')' after parameters.");
+
+        consume(LEFT_BRACE, "Expect '{' before " + kind + " body.");
+        List<Stmt> body = block();
+        return new Stmt.Function(name, parameters, body);
     }
 
     private Stmt varDeclaration() {
@@ -80,6 +105,7 @@ public class Parser {
         if (match(FOR)) return forStatement();
         if (match(IF)) return ifStatement();
         if(match(PRINT)) return printStatement();
+        if (match(RETURN)) return returnStatement();
         if (match(WHILE)) return whileStatement();
         if (match(LEFT_BRACE)) return new Stmt.Block(block());
         return expressionStatement();
@@ -142,6 +168,16 @@ public class Parser {
         consume(RIGHT_PAREN, "Expect ')' after condition.");
         Stmt body = statement();
         return new Stmt.While(condition, body);
+    }
+
+    private Stmt returnStatement() {
+        Token keyword = previous();
+        Expr value = null;
+        if (!check(SEMICOLON)) {
+            value = expression();
+        }
+        consume(SEMICOLON, "Expect ';' after return value.");
+        return new Stmt.Return(keyword, value);
     }
 
     private Stmt ifStatement() {
@@ -300,6 +336,9 @@ public class Parser {
         List<Expr> arguments = new ArrayList<>();
         if (!check(RIGHT_PAREN)) {
             do {
+                if (arguments.size() >= 255) {
+                    error(peek(), "Can't have more than 255 arguments.");
+                }
                 arguments.add(expression());
             } while (match(COMMA));
         }
